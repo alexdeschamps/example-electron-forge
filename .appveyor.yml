@@ -1,0 +1,13 @@
+platform:
+- x64
+environment:
+  nodejs_version: "6"
+cache:
+  - '%LOCALAPPDATA%\Yarn'
+  - '%USERPROFILE%\.electron'
+
+install:
+  - yarn
+
+build_script:
+  - yarn build
