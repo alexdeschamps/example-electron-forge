@@ -7,7 +7,7 @@ cache:
   - '%USERPROFILE%\.electron'
 
 install:
-  - yarn
+  - yarn --ignore-engines
 
 build_script:
-  - yarn build
+  - yarn build --ignore-engines
