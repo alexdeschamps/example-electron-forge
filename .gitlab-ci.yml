@@ -1,0 +1,160 @@
+stages:
+  - build
+  - test
+  - review
+  - pack
+
+
+####################
+# BUILD
+####################
+.build: &build-job
+  stage: build
+  before_script:
+    # Yarn is not used because it hangs during packages installation.
+    #- npm -q install yarn
+    #- ./node_modules/.bin/yarn
+    - npm -q install
+  script:
+    - npm run build
+
+# LTS NodeJS version.
+build:node-6:
+  <<: *build-job
+  image: node:6
+  cache: # Used to transmit dependencies amongst jobs.
+    key: npm:node-6
+    paths:
+      - node_modules/
+      #- $HOME/.yarn-cache
+  artifacts: # Exports the build.
+    name: "${CI_COMMIT_REF_NAME}-${CI_JOB_NAME}"
+    paths:
+      - build/
+      #- yarn.lock
+    expire_in: 1h
+
+# Stable NodeJS version, optional.
+build:node-7:
+  <<: *build-job
+  image: node:7
+  allow_failure: true
+  cache: # Used to transmit dependencies amongst jobs.
+    key: npm:node-7
+    paths:
+      - node_modules/
+      #- $HOME/.yarn-cache
+
+
+####################
+# TEST
+####################
+test:
+  image: maxwellewxam/headless-electron-runner
+  stage: test
+  cache: # Retrieves dependencies.
+    key: npm:node-6
+    paths:
+      - node_modules/
+  dependencies: []
+  artifacts: # Exports coverage reports.
+    name: "${CI_COMMIT_REF_NAME}-${CI_JOB_NAME}_coverage"
+    paths:
+      - coverage/
+    expire_in: 1h
+  before_script:
+    - npm -q install
+    - Xvfb :99 -screen 0 1024x768x24 +extension RANDR > /dev/null 2>&1 &
+  script: npm test
+
+####################
+# REVIEW
+####################
+
+# Lint
+######
+#lint:
+#  image: node:6
+#  stage: review
+#  dependencies: []
+  #allow_failure: true
+#  before_script:
+#    - npm -q install eslint eslint-config-standard eslint-plugin-import eslint-plugin-node eslint-plugin-promise eslint-plugin-standard htmlhint pug-lint stylelint stylelint-config-standard stylelint-order stylelint-scss
+#  script: npm run lint
+
+# SonarQube
+###########
+.sonarqube: &sonarqube-job
+  image: maxwellewxam/sonar-scanner
+  stage: review
+  only:
+    - branches
+  cache:
+    key: sonarqube
+    paths:
+      - /root/.sonar/cache
+  dependencies:
+    - test # Retrieves coverage reports.
+# SonarQube GitLab integration.
+sonarqube:preview:
+  <<: *sonarqube-job
+  except:
+    - master
+    - dmz
+  script: >
+    sonar-scanner
+    -D sonar.analysis.mode=preview
+    -D sonar.host.url=$SONAR_HOST
+    -D sonar.projectKey=$SONAR_PROJECT_KEY
+    -D sonar.branch=$CI_COMMIT_REF_NAME
+    -D sonar.login=$SONAR_TOKEN
+    -D sonar.gitlab.project_id=$CI_PROJECT_PATH
+    -D sonar.gitlab.commit_sha=$CI_COMMIT_SHA
+    -D sonar.gitlab.ref_name=$CI_COMMIT_REF_NAME
+# SonarQube analysis.
+sonarqube:
+  <<: *sonarqube-job
+  except:
+    - dmz
+  script: >
+    sonar-scanner
+    -D sonar.host.url=$SONAR_HOST
+    -D sonar.projectKey=$SONAR_PROJECT_KEY
+    -D sonar.branch=$CI_COMMIT_REF_NAME
+    -D sonar.login=$SONAR_TOKEN
+
+# Code Climate
+##############
+# Coverage reporting to Code Climate.
+#codeclimate:
+#  image: node:6
+#  stage: review
+#  only:
+#    - branches
+#  except:
+#    - dmz
+#  dependencies:
+#    - test
+#  before_script:
+#    - npm -q install -g codeclimate-test-reporter
+#  script: codeclimate-test-reporter < coverage/lcov.info
+
+####################
+# PACK
+####################
+
+pack:
+  image: monostream/nodejs-electron-packager # Wine is used to build Windows packages.
+  allow_failure: true
+  stage: pack
+  only:
+    - tags
+  dependencies:
+    - build:node-6
+  artifacts: # Exports packages.
+    name: "${CI_BUILD_REF_NAME}-${CI_BUILD_NAME}"
+    paths:
+      - packages/
+  before_script:
+    - npm -q install cross-env electron-packager yarn-install
+  script: npm run pack
